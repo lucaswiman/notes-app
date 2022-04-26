@@ -14,6 +14,8 @@ due:
 # and is no longer worth displaying. This is relative to the due date, so e.g. "2 weeks"
 # means "2 weeks after the due date". The default is 1 month.
 irrelevant_after: 1 month
+completed: false
+completed_at: null
 
 notes: |
   (optional)

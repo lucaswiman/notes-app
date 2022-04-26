@@ -1,10 +1,12 @@
 #!/usr/bin/env python
 import datetime as module_datetime
+import hashlib
 import itertools
 import os
 import pathlib
 import regex as re
 import sys
+import tempfile
 import zoneinfo
 
 import typer
@@ -32,17 +34,18 @@ TEMPLATES = list(itertools.chain(TEMPLATE_PATH.glob("*.md"), TEMPLATE_PATH.glob(
 COMMAND_TO_TEMPLATE = {f.stem.replace('-', '_'): f for f in TEMPLATES}
 
 
-def edit(text: str):
-    import sys, tempfile, os
+def edit_file(path: pathlib.Path):
     from subprocess import call
 
     EDITOR = os.environ.get('EDITOR', 'vim')
+    call([EDITOR, path])
 
 
+def edit_template(text: str):
     with tempfile.NamedTemporaryFile(suffix=".tmp", delete=True) as tf:
         tf.write(text.encode())
         tf.flush()
-        call([EDITOR, tf.name])
+        edit_file(tf.name)
         edited_message = pathlib.Path(tf.name).read_text()
     if text == edited_message:
         return None
@@ -66,7 +69,7 @@ def do_note(template: pathlib.Path, data_dir=DATA_PATH):
         from jinja2 import Environment, BaseLoader
         rtemplate = Environment(loader=BaseLoader).from_string(value)
         value = rtemplate.render(date=module_datetime.datetime.now(TIMEZONE).date().isoformat())
-    final = edit(value)
+    final = edit_template(value)
     if final is not None:
         path = data_dir / f"{timestamp.year}/{timestamp.isoformat()}-{template.name}"
         path.write_text(final)
@@ -166,6 +169,13 @@ def parse_datetime_or_delta(
 query = typer.Typer()
 app.add_typer(query, name="query")
 
+
+def file_id(path):
+    if isinstance(path, str):
+        path = pathlib.Path(path)
+    return hashlib.blake2s(path.name.encode()).hexdigest()[:10]
+
+
 @query.command()
 def tasks(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False):
     """
@@ -187,10 +197,64 @@ def tasks(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False):
             irrelevant = parse_datetime_or_delta(value["irrelevant_after"], ts)
             completed = value.get("completed")
             if show_all or (not completed and dt_compare(now, irrelevant)):
-                table.append((due.isoformat(), value['event'], ts.date().isoformat(), bool(completed)))
+                table.append((due.isoformat(), value['event'], ts.date().isoformat(), bool(completed), file_id(task)))
     table.sort(key=lambda x: x[0], reverse=False)
-    print(tabulate.tabulate(table, headers=["Due", "Event", "Created", "Completed"]))
+    print(tabulate.tabulate(table, headers=["Due", "Event", "Created", "Completed", "id"]))
 
+
+@query.command()
+def predictions(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False):
+    """
+    Query predictions and due dates.
+
+    If --show-all is selected, then completed predictions will be included.
+    """
+    import tabulate
+    yaml = YAML(typ="safe")
+    table = []
+    for task in data_dir.glob("**/*.yaml"):
+        if task.stem.endswith("prediction"):
+            value = yaml.load(task)
+            ts = value["timestamp"]
+            expectation_str = value.get("expected_completion")
+            expectation = None
+            if expectation_str is not None:
+                expectation = parse_datetime_or_delta(expectation_str, ts)
+            completed_at = value.get("completed_at")
+            if show_all or not completed_at:
+                table.append((
+                    expectation.isoformat(),
+                    value['event'],
+                    ts.date().isoformat(),
+                    completed_at.isoformat() if completed_at else None,
+                    file_id(task))
+                )
+    table.sort(key=lambda x: x[0], reverse=False)
+    print(tabulate.tabulate(table, headers=["Expected Completion", "Event", "Created", "Actual", "id"]))
+
+
+@app.command()
+def edit(id: str, data_dir: pathlib.Path=DATA_PATH):
+    for task in data_dir.glob("**/*.*"):
+        if id == task.name or id == file_id(task):
+            edit_file(task)
+            return
+
+
+@app.command()
+def complete(id: str, completed_at=None, data_dir: pathlib.Path=DATA_PATH):
+    if completed_at is None:
+        completed_at = module_datetime.datetime.now(tz=TIMEZONE)
+    else:
+        completed_at = parse_datetime_or_delta(completed_at, module_datetime.datetime.now(tz=TIMEZONE))
+    for task in data_dir.glob("**/*.*"):
+        if id == task.name or id == file_id(task):
+            yaml = YAML(typ="safe")
+            value = yaml.load(task)
+            value["completed_at"] = completed_at
+            value["completed"] = True
+            yaml.dump(value, task)
+            return
 
 
 if __name__ == '__main__':
