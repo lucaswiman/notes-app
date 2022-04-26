@@ -9,6 +9,7 @@ import sys
 import tempfile
 import zoneinfo
 
+import tabulate
 import typer
 
 from ruamel.yaml import YAML
@@ -82,7 +83,7 @@ def do_note(template: pathlib.Path, data_dir=DATA_PATH):
 
 
 record = typer.Typer()
-app.add_typer(record, name="record")
+app.add_typer(record, name="record", help="Make a new record of the given type.")
 
 
 # TODO: how to define a command for each template in the directory without method each time?
@@ -167,7 +168,7 @@ def parse_datetime_or_delta(
 
 
 query = typer.Typer()
-app.add_typer(query, name="query")
+app.add_typer(query, name="query", help="Commands to query records.")
 
 
 def file_id(path):
@@ -183,7 +184,6 @@ def tasks(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False):
 
     If --show-all is selected, then expired or completed tasks will be included.
     """
-    import tabulate
     yaml = YAML(typ="safe")
     now = module_datetime.datetime.now(tz=TIMEZONE)
     table = []
@@ -209,7 +209,6 @@ def predictions(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False):
 
     If --show-all is selected, then completed predictions will be included.
     """
-    import tabulate
     yaml = YAML(typ="safe")
     table = []
     for task in data_dir.glob("**/*.yaml"):
@@ -233,7 +232,7 @@ def predictions(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False):
     print(tabulate.tabulate(table, headers=["Expected Completion", "Event", "Created", "Actual", "id"]))
 
 
-@app.command()
+@app.command(help="Edit a record by id.")
 def edit(id: str, data_dir: pathlib.Path=DATA_PATH):
     for task in data_dir.glob("**/*.*"):
         if id == task.name or id == file_id(task):
@@ -241,7 +240,7 @@ def edit(id: str, data_dir: pathlib.Path=DATA_PATH):
             return
 
 
-@app.command()
+@app.command(help="Mark a task, due date or prediction as complete.")
 def complete(id: str, completed_at=None, data_dir: pathlib.Path=DATA_PATH):
     if completed_at is None:
         completed_at = module_datetime.datetime.now(tz=TIMEZONE)
@@ -255,6 +254,19 @@ def complete(id: str, completed_at=None, data_dir: pathlib.Path=DATA_PATH):
             value["completed"] = True
             yaml.dump(value, task)
             return
+
+
+@query.command(help="Search records for a given string.")
+def grep(string: str, data_dir: pathlib.Path=DATA_PATH):
+    """
+    TODO: should we just defer this entirely to grep, like git-grep, then display the match
+          in our tabular format.
+    """
+    data = []
+    for task in data_dir.glob("**/*.*"):
+        if string in task.read_text():
+            data.append((task.name, file_id(task)))
+    print(tabulate.tabulate(data, headers=["Name", "id"]))
 
 
 if __name__ == '__main__':
