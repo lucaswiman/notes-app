@@ -160,7 +160,7 @@ def parse_datetime_or_delta(
     elif (m := re.fullmatch(r"(\d+) (\L<formats>)s?", s, formats=list(TIME_UNITS))):
         unit = m.group(2)
         result = ts + TIME_UNITS[unit](m.group(1))
-        if unit != "hour":
+        if unit != "hour" and hasattr(result, "date"):
             result = result.date()
         return result
     else:
@@ -194,10 +194,23 @@ def tasks(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False):
             due_str = value.get("due")
             if due_str is not None:
                 due = parse_datetime_or_delta(due_str, ts)
-            irrelevant = parse_datetime_or_delta(value["irrelevant_after"], ts)
+                irrelevancy_start = due
+            else:
+                due = ''
+                irrelevancy_start = ts
+            try:
+                irrelevant = parse_datetime_or_delta(value["irrelevant_after"], irrelevancy_start)
+            except:
+                raise
+                breakpoint()
             completed = value.get("completed")
             if show_all or (not completed and dt_compare(now, irrelevant)):
-                table.append((due.isoformat(), value['event'], ts.date().isoformat(), bool(completed), file_id(task)))
+                table.append((
+                    due.isoformat() if hasattr(due, "isoformat") else due,
+                    value['event'],
+                    ts.date().isoformat(),
+                    bool(completed),
+                    file_id(task)))
     table.sort(key=lambda x: x[0], reverse=False)
     print(tabulate.tabulate(table, headers=["Due", "Event", "Created", "Completed", "id"]))
 
