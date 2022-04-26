@@ -3,6 +3,7 @@ import datetime as module_datetime
 import itertools
 import os
 import pathlib
+import re
 import sys
 import zoneinfo
 
@@ -112,6 +113,46 @@ def task(data_dir: pathlib.Path=DATA_PATH):
     return do_note(COMMAND_TO_TEMPLATE["task"], data_dir)
 
 
+def parse_bday(bday: str):
+    # Inline import because pandas is pretty slow to import.
+    from pandas.tseries.offsets import BDay
+    return BDay(int(bday))
+
+
+TIME_UNITS = {
+    "hour": (lambda x: module_datetime.timedelta(hours=x)),
+    "day": (lambda x: module_datetime.timedelta(days=int(x))),
+    "week": (lambda x: module_datetime.timedelta(weeks=int(x))),
+
+    # TODO: some months are not 30 days long.
+    "month": (lambda x: module_datetime.timedelta(days=int(x)*30)),
+    "business day": parse_bday,
+}
+
+
+def parse_datetime_or_delta(
+    s: str | module_datetime.datetime | module_datetime.date,
+    ts: module_datetime.datetime
+) -> module_datetime.datetime | module_datetime.date:
+    if not isinstance(s, str):
+        return s
+    if re.fullmatch(r"\d{2}:\d{2}", s):
+        time = module_datetime.datetime.strptime(s, "%H:%M", tzinfo=TIMEZONE).time()
+        return ts.replace(hour=time.hour, minute=time.minute, second=0, microsecond=0)
+    elif re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+        return module_datetime.datetime.strptime(s, "%Y-%m-%d").date()
+    elif re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2} (am|pm)", s):
+        return module_datetime.datetime.strptime(s, '%Y-%m-%d %H:%M %p', tzinfo=TIMEZONE)
+    elif (m := re.fullmatch(r"(\d+) (\L<formats>)s?", s, formats=list(TIME_UNITS))):
+        unit = m.group(2)
+        result = ts + TIME_UNITS[unit](m.group(1))
+        if unit != "hour":
+            result = result.date()
+        return result
+    else:
+        raise ValueError(f"Unrecognized format: {s}.")
+
+
 query = typer.Typer()
 app.add_typer(query, name="query")
 
@@ -124,11 +165,16 @@ def tasks(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False):
     """
     yaml = YAML(typ="safe")
     for task in data_dir.glob("**/*.yaml"):
-        if task.stem.endswith("task") or task.stem.endswith("due_date"):
+        if task.stem.endswith("task") or task.stem.endswith("due-date"):
             value = yaml.load(task)
-            breakpoint()
-            # if show_all or not task.stem.endswith("_completed"):
-            #     print(task.read_text())
+            ts = value["timestamp"]
+            due_str = value.get("due")
+            print(f"{task.stem}, {due_str=}")
+            if due_str is not None:
+                due = parse_datetime_or_delta(due_str, ts)
+                print(f"{task.stem}, {due=}, {ts=}, {due_str=}")
+        else:
+            print(f"Skipping: {task.stem}")
     raise NotImplementedError()
 
 
