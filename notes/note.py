@@ -3,7 +3,7 @@ import datetime as module_datetime
 import itertools
 import os
 import pathlib
-import re
+import regex as re
 import sys
 import zoneinfo
 
@@ -129,6 +129,16 @@ TIME_UNITS = {
     "business day": parse_bday,
 }
 
+def is_date(d):
+    return isinstance(d, module_datetime.date) and not isinstance(d, module_datetime.datetime)
+
+
+def dt_compare(d1, d2):
+    if is_date(d1) and not is_date(d2):
+        d2 = d2.date()
+    elif is_date(d2) and not is_date(d1):
+        d1 = d1.date()
+    return d1 <= d2
 
 def parse_datetime_or_delta(
     s: str | module_datetime.datetime | module_datetime.date,
@@ -163,19 +173,24 @@ def tasks(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False):
 
     If --show-all is selected, then expired or completed tasks will be included.
     """
+    import tabulate
     yaml = YAML(typ="safe")
+    now = module_datetime.datetime.now(tz=TIMEZONE)
+    table = []
     for task in data_dir.glob("**/*.yaml"):
         if task.stem.endswith("task") or task.stem.endswith("due-date"):
             value = yaml.load(task)
             ts = value["timestamp"]
             due_str = value.get("due")
-            print(f"{task.stem}, {due_str=}")
             if due_str is not None:
                 due = parse_datetime_or_delta(due_str, ts)
-                print(f"{task.stem}, {due=}, {ts=}, {due_str=}")
-        else:
-            print(f"Skipping: {task.stem}")
-    raise NotImplementedError()
+            irrelevant = parse_datetime_or_delta(value["irrelevant_after"], ts)
+            completed = value.get("completed")
+            if show_all or (not completed and dt_compare(now, irrelevant)):
+                table.append((due.isoformat(), value['event'], ts.date().isoformat(), bool(completed)))
+    table.sort(key=lambda x: x[0], reverse=False)
+    print(tabulate.tabulate(table, headers=["Due", "Event", "Created", "Completed"]))
+
 
 
 if __name__ == '__main__':
