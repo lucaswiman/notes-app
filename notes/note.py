@@ -198,11 +198,7 @@ def tasks(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False):
             else:
                 due = ''
                 irrelevancy_start = ts
-            try:
-                irrelevant = parse_datetime_or_delta(value["irrelevant_after"], irrelevancy_start)
-            except:
-                raise
-                breakpoint()
+            irrelevant = parse_datetime_or_delta(value["irrelevant_after"], irrelevancy_start)
             completed = value.get("completed")
             if show_all or (not completed and dt_compare(now, irrelevant)):
                 table.append((
@@ -212,7 +208,7 @@ def tasks(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False):
                     bool(completed),
                     file_id(task)))
     table.sort(key=lambda x: x[0], reverse=False)
-    print(tabulate.tabulate(table, headers=["Due", "Event", "Created", "Completed", "id"]))
+    print(tabulate.tabulate(table, headers=["Due", "Task", "Created", "Completed", "id"]))
 
 
 @query.command()
