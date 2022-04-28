@@ -241,6 +241,43 @@ def predictions(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False):
     print(tabulate.tabulate(table, headers=["Expected Completion", "Event", "Created", "Actual", "id"]))
 
 
+@query.command()
+def notes(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False, tag=None):
+    import commonmark
+    parser = commonmark.Parser()
+    yaml = YAML(typ="safe")
+    table = []
+    for file in data_dir.glob("**/*.md"):
+        if file.stem.endswith("note"):
+            ast = parser.parse(file.read_text())
+            nodes = list(ast.walker())
+            heading = next(n[0] for n in nodes if n[0].t == "heading" and n[0].level == 1)
+            title = heading.first_child.literal
+            metadata = next (n[0] for n in reversed(nodes) if n[0].t == "code_block" and n[0].info == "yaml")
+            value = yaml.load(metadata.literal)
+            date = value.get("date") or module_datetime.date.today()
+            if value.get("irrelevant_after"):
+                if value.get("irrelevant_after") == "never":
+                    irrelevant = module_datetime.date(2100, 1, 1)
+                else:
+                    irrelevant = parse_datetime_or_delta(value["irrelevant_after"], date)
+            else:
+                irrelevant = date + module_datetime.timedelta(year=1)
+            tags = value.get("tags", [])
+            if not (tag is None or tag in tags):
+                continue
+            completed = value.get("completed")
+            if show_all or (not completed and dt_compare(module_datetime.datetime.now(), irrelevant)):
+                table.append((
+                    date.isoformat(),
+                    title,
+                    ", ".join(tags),
+                    file_id(file),
+                ))
+    table.sort(key=lambda x: x[0], reverse=False)
+    print(tabulate.tabulate(table, headers=["Date", "Note", "tags", "id"]))
+
+
 @app.command(help="Edit a record by id.")
 def edit(id: str, data_dir: pathlib.Path=DATA_PATH):
     for task in data_dir.glob("**/*.*"):
