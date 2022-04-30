@@ -6,7 +6,6 @@ import os
 import pathlib
 import sys
 import tempfile
-import zoneinfo
 from subprocess import call
 from typing import Optional
 
@@ -15,7 +14,7 @@ import typer
 
 from ruamel.yaml import YAML
 
-from .parser import TIMEZONE, parse_datetime_or_delta
+from .parser import TIMEZONE, parse_datetime_or_delta, parse_record
 
 
 app = typer.Typer()
@@ -68,7 +67,6 @@ def edit_template(text: str):
         return None
     else:
         return edited_message
-
 
 
 def do_note(template: pathlib.Path, data_dir=DATA_PATH):
@@ -143,27 +141,18 @@ def tasks(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False, edit: bool=Fal
 
     If --show-all is selected, then expired or completed tasks will be included.
     """
-    yaml = YAML(typ="safe")
     now = module_datetime.datetime.now(tz=TIMEZONE)
     table = []
     for task in data_dir.glob("**/*.yaml"):
-        if task.stem.endswith("task") or task.stem.endswith("due-date"):
-            value = yaml.load(task)
-            ts = value["timestamp"]
-            due_str = value.get("due")
-            if due_str is not None:
-                due = parse_datetime_or_delta(due_str, ts)
-                irrelevancy_start = due
-            else:
-                due = ''
-                irrelevancy_start = ts
-            irrelevant = parse_datetime_or_delta(value["irrelevant_after"], irrelevancy_start)
-            completed = value.get("completed")
-            if show_all or (not completed and dt_compare(now, irrelevant)):
+        parsed = parse_record(task)
+        if parsed["type"] in ("task", "due-date") and (show_all or not parsed["completed_at"]):
+            due = parsed.get("due")
+            completed = parsed.get("completed")
+            if show_all or (not completed and dt_compare(now, parsed.get("irrelevant"))):
                 table.append((
-                    due.isoformat() if hasattr(due, "isoformat") else due,
-                    value['event'],
-                    ts.date().isoformat(),
+                    (due.isoformat() if hasattr(due, "isoformat") else due) or "",
+                    parsed['event'],
+                    parsed["created"].date().isoformat(),
                     bool(completed),
                     file_id(task)))
     table.sort(key=lambda x: x[0], reverse=False)
@@ -177,66 +166,43 @@ def tasks(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False, edit: bool=Fal
 
 
 @query.command()
-def predictions(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False):
+def predictions(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False, edit: bool=False):
     """
     Query predictions and due dates.
 
     If --show-all is selected, then completed predictions will be included.
     """
-    yaml = YAML(typ="safe")
     table = []
     for task in data_dir.glob("**/*.yaml"):
-        if task.stem.endswith("prediction"):
-            value = yaml.load(task)
-            ts = value["timestamp"]
-            expectation_str = value.get("expected_completion")
-            expectation = None
-            if expectation_str is not None:
-                expectation = parse_datetime_or_delta(expectation_str, ts)
-            completed_at = value.get("completed_at")
-            if show_all or not completed_at:
-                table.append((
-                    expectation.isoformat(),
-                    value['event'],
-                    ts.date().isoformat(),
-                    completed_at.isoformat() if completed_at else None,
-                    file_id(task))
-                )
+        parsed = parse_record(task)
+        if parsed["type"] == "prediction" and (show_all or not parsed["completed_at"]):
+            table.append((
+                parsed["expected_completion"].isoformat(),
+                parsed["event"],
+                parsed["created"].date().isoformat(),
+                parsed["completed_at"],
+                file_id(task)
+            ))
+
     table.sort(key=lambda x: x[0], reverse=False)
-    show_table(table, headers=["Expected Completion", "Event", "Created", "Actual", "id"])
+    show_table(table, headers=["Expected Completion", "Event", "Created", "Actual", "id"], edit=edit, data_dir=data_dir, pickable=edit)
 
 
-@query.command()
+@query.command(help="List all notes.")
 def notes(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False, tag=None, edit: bool=False):
-    import commonmark
-    parser = commonmark.Parser()
-    yaml = YAML(typ="safe")
     table = []
     for file in data_dir.glob("**/*.md"):
-        if file.stem.endswith("note"):
-            ast = parser.parse(file.read_text())
-            nodes = list(ast.walker())
-            heading = next(n[0] for n in nodes if n[0].t == "heading" and n[0].level == 1)
-            title = heading.first_child.literal
-            metadata = next (n[0] for n in reversed(nodes) if n[0].t == "code_block" and n[0].info == "yaml")
-            value = yaml.load(metadata.literal)
-            date = value.get("date") or module_datetime.date.today()
-            if value.get("irrelevant_after"):
-                if value.get("irrelevant_after") == "never":
-                    irrelevant = module_datetime.date(2100, 1, 1)
-                else:
-                    irrelevant = parse_datetime_or_delta(value["irrelevant_after"], date)
-            else:
-                irrelevant = date + module_datetime.timedelta(year=1)
-            tags = value.get("tags", [])
-            if not (tag is None or tag in tags):
-                continue
-            completed = value.get("completed")
+        parsed = parse_record(file)
+        if parsed["type"] == "note":
+            completed = parsed["completed"]
+            irrelevant = parsed["irrelevant"]
+            title = parsed["event"]
+            date = parsed["created"]
             if show_all or (not completed and dt_compare(module_datetime.datetime.now(), irrelevant)):
                 table.append((
                     date.isoformat(),
                     title,
-                    ", ".join(tags),
+                    ", ".join(parsed["tags"]),
                     file_id(file),
                 ))
     table.sort(key=lambda x: x[0], reverse=False)
@@ -274,6 +240,8 @@ def view(id: str, data_dir: pathlib.Path=DATA_PATH):
 
 @record.command(help="Mark a task, due date or prediction as complete.")
 def complete(id: str, completed_at=None, data_dir: pathlib.Path=DATA_PATH):
+    # TODO: (1) make this work for notes.
+    # TODO: (2) make this pickable.
     if completed_at is None:
         completed_at = module_datetime.datetime.now(tz=TIMEZONE)
     else:

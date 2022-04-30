@@ -33,12 +33,14 @@ TIME_UNITS = {
 
 
 def parse_datetime_or_delta(
-    s: str | datetime.datetime | datetime.date,
-    ts: datetime.datetime
+    s: str | datetime.datetime | datetime.date | None,
+    ts: datetime.datetime | datetime.date,
 ) -> datetime.datetime | datetime.date:
-    if not isinstance(s, str):
+    if not isinstance(s, str) or not s:
         return s
-    if re.fullmatch(r"\d{2}:\d{2}", s):
+    if s.lower() == "never":
+        return datetime.date(2100, 1, 1)
+    elif re.fullmatch(r"\d{2}:\d{2}", s):
         time = datetime.datetime.strptime(s, "%H:%M", tzinfo=TIMEZONE).time()
         return ts.replace(hour=time.hour, minute=time.minute, second=0, microsecond=0)
     elif re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
@@ -56,25 +58,42 @@ def parse_datetime_or_delta(
 
 
 
-def parse(path: pathlib.Path) -> dict:
+def parse_record(path: pathlib.Path) -> dict:
     ext = path.suffix
+    extracts = {}
+    orig = path.read_text()
     if ext == ".md":
-        ast = markdown_parser.parse(path.read_text())
-        nodes = list(ast.walker())
+        parsed = markdown_parser.parse(orig)
+        nodes = list(parsed.walker())
         heading = next(n[0] for n in nodes if n[0].t == "heading" and n[0].level == 1)
-        title = heading.first_child.literal
+        extracts["event"] = heading.first_child.literal
         metadata = next(n[0] for n in reversed(nodes) if n[0].t == "code_block" and n[0].info == "yaml")
-        value = yaml.load(metadata.literal)
-        date = value.get("date") or datetime.date.today()
-        if value.get("irrelevant_after"):
-            if value.get("irrelevant_after") == "never":
-                irrelevant = datetime.date(2100, 1, 1)
-            else:
-                irrelevant = parse_datetime_or_delta(value["irrelevant_after"], date)
-        else:
-            irrelevant = date + datetime.timedelta(year=1)
+        raw_data = yaml.load(metadata.literal)
     elif ext == ".yaml":
-        raise NotImplementedError() # TODO
+        raw_data = yaml.load(path.read_text())
+        extracts["event"] = raw_data["event"]
     else:
         raise ValueError(f"Unknown file type: {ext}")
-    loaded = yaml_obj.load(path.read_text())
+
+    extracts["created"] = raw_data.get("date") or raw_data.get("timestamp")
+    extracts["expected_completion"] = parse_datetime_or_delta(
+        raw_data.get("expected_completion"), extracts["created"])
+    extracts["due"] = parse_datetime_or_delta(raw_data.get("due"), extracts["created"])
+    relative_to_date = (
+        extracts["expected_completion"] or extracts["due"] or extracts["created"] or datetime.date.today())
+
+    if raw_data.get("irrelevant_after"):
+        irrelevant = parse_datetime_or_delta(raw_data["irrelevant_after"], relative_to_date)
+    else:
+        irrelevant = extracts["created"] + datetime.timedelta(days=365)
+    extracts["irrelevant"] = irrelevant
+
+
+    extracts["completed"] = raw_data.get("completed")
+    extracts["completed_at"] = parse_datetime_or_delta(raw_data.get("completed_at"), relative_to_date)
+    extracts["tags"] = raw_data.get("tags", [])
+    extracts["file"] = path
+    extracts["raw_data"] = raw_data
+    [type] = re.findall(r'[0-9T:.-]+-(.*)', path.stem)
+    extracts["type"] = type
+    return extracts
