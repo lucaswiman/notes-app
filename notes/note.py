@@ -103,35 +103,14 @@ app.add_typer(record, name="record", help="Make a new record of the given type."
 app.add_typer(record, name="mark", help="Alias of record.")
 
 
-# TODO: how to define a command for each template in the directory without method each time?
-@record.command()
-def due_date(data_dir: pathlib.Path=DATA_PATH):
-    return do_note(COMMAND_TO_TEMPLATE["due_date"], data_dir)
+def do_template_command(command: str):
+    def _do_template(data_dir=DATA_PATH):
+        return do_note(COMMAND_TO_TEMPLATE[command], data_dir=data_dir)
+    _do_template.__name__ = command
+    return _do_template
 
-
-@record.command()
-def event(data_dir: pathlib.Path=DATA_PATH):
-    return do_note(COMMAND_TO_TEMPLATE["event"], data_dir)
-
-
-@record.command()
-def metric(data_dir: pathlib.Path=DATA_PATH):
-    return do_note(COMMAND_TO_TEMPLATE["metric"], data_dir)
-
-
-@record.command()
-def note(data_dir: pathlib.Path=DATA_PATH):
-    return do_note(COMMAND_TO_TEMPLATE["note"], data_dir)
-
-
-@record.command()
-def prediction(data_dir: pathlib.Path=DATA_PATH):
-    return do_note(COMMAND_TO_TEMPLATE["prediction"], data_dir)
-
-
-@record.command()
-def task(data_dir: pathlib.Path=DATA_PATH):
-    return do_note(COMMAND_TO_TEMPLATE["task"], data_dir)
+for command in COMMAND_TO_TEMPLATE:
+    record.command()(do_template_command(command))
 
 
 def is_date(d):
