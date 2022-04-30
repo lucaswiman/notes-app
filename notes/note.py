@@ -4,7 +4,6 @@ import hashlib
 import itertools
 import os
 import pathlib
-import regex as re
 import sys
 import tempfile
 import zoneinfo
@@ -15,6 +14,8 @@ import tabulate
 import typer
 
 from ruamel.yaml import YAML
+
+from .parser import TIMEZONE, parse_datetime_or_delta
 
 
 app = typer.Typer()
@@ -30,7 +31,6 @@ if "NOTES_TEMPLATE_PATH" in os.environ:
 else:
     TEMPLATE_PATH = pathlib.Path(__file__).parent / "templates"
 
-TIMEZONE = zoneinfo.ZoneInfo(os.environ.get("NOTES_TIMEZONE", "America/Los_Angeles"))
 
 TEMPLATES = list(itertools.chain(TEMPLATE_PATH.glob("*.md"), TEMPLATE_PATH.glob("*.txt"), TEMPLATE_PATH.glob("*.yaml")))
 
@@ -134,22 +134,6 @@ def task(data_dir: pathlib.Path=DATA_PATH):
     return do_note(COMMAND_TO_TEMPLATE["task"], data_dir)
 
 
-def parse_bday(bday: str):
-    # Inline import because pandas is pretty slow to import.
-    from pandas.tseries.offsets import BDay
-    return BDay(int(bday))
-
-
-TIME_UNITS = {
-    "hour": (lambda x: module_datetime.timedelta(hours=x)),
-    "day": (lambda x: module_datetime.timedelta(days=int(x))),
-    "week": (lambda x: module_datetime.timedelta(weeks=int(x))),
-
-    # TODO: some months are not 30 days long.
-    "month": (lambda x: module_datetime.timedelta(days=int(x)*30)),
-    "business day": parse_bday,
-}
-
 def is_date(d):
     return isinstance(d, module_datetime.date) and not isinstance(d, module_datetime.datetime)
 
@@ -160,28 +144,6 @@ def dt_compare(d1, d2):
     elif is_date(d2) and not is_date(d1):
         d1 = d1.date()
     return d1 <= d2
-
-def parse_datetime_or_delta(
-    s: str | module_datetime.datetime | module_datetime.date,
-    ts: module_datetime.datetime
-) -> module_datetime.datetime | module_datetime.date:
-    if not isinstance(s, str):
-        return s
-    if re.fullmatch(r"\d{2}:\d{2}", s):
-        time = module_datetime.datetime.strptime(s, "%H:%M", tzinfo=TIMEZONE).time()
-        return ts.replace(hour=time.hour, minute=time.minute, second=0, microsecond=0)
-    elif re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
-        return module_datetime.datetime.strptime(s, "%Y-%m-%d").date()
-    elif re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2} (am|pm)", s):
-        return module_datetime.datetime.strptime(s, '%Y-%m-%d %H:%M %p', tzinfo=TIMEZONE)
-    elif (m := re.fullmatch(r"(\d+) (\L<formats>)s?", s, formats=list(TIME_UNITS))):
-        unit = m.group(2)
-        result = ts + TIME_UNITS[unit](m.group(1))
-        if unit != "hour" and hasattr(result, "date"):
-            result = result.date()
-        return result
-    else:
-        raise ValueError(f"Unrecognized format: {s}.")
 
 
 query = typer.Typer()
