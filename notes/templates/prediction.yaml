@@ -1,0 +1,26 @@
+event:
+url:
+
+# One of the following formats:
+# - "in N {hours, days, business days, weeks, months}"
+# - "at date, time (assumed today) or datetime in format YYYY-MM-DD HH am/pm"
+expected_completion:
+
+# Leave blank until done. Standard date/time formats.
+complete:
+completed_at:
+# Standard deviation of the time to completion, e.g. "2 business days".
+# If not specified, the default is to use the same unit as the expected_completion,
+# hours if it is a time today, or business days otherwise.
+# Example: "2 business days"
+std:
+
+# Same format as std for each of minus/plus.
+range:
+  minus:
+  plus:
+
+notes: |
+  (optional)
+timestamp: null
+tags: []

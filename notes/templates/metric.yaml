@@ -1,0 +1,8 @@
+# The name of the metric, e.g. body mass, hours of sleep, etc.
+metric:
+
+# The value of the metric, usually a decimal number, but could also be a boolean or a string.
+value:
+
+timestamp: null
+tags: []
