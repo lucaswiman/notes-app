@@ -8,6 +8,8 @@ import regex as re
 import sys
 import tempfile
 import zoneinfo
+from subprocess import call
+from typing import Optional
 
 import tabulate
 import typer
@@ -35,9 +37,23 @@ TEMPLATES = list(itertools.chain(TEMPLATE_PATH.glob("*.md"), TEMPLATE_PATH.glob(
 COMMAND_TO_TEMPLATE = {f.stem.replace('-', '_'): f for f in TEMPLATES}
 
 
-def edit_file(path: pathlib.Path):
-    from subprocess import call
+def show_table(table_data: list, headers: list, show_index=True, pickable=False, edit=False, data_dir=DATA_PATH):
+    table = tabulate.tabulate(table_data, headers=headers, showindex=show_index)
+    if pickable:
+        from pick import pick
+        rows = table.split('\n')
+        title = '\n'.join(['  ' + rows[0], '  ' + rows[1]])
+        rows = rows[2:]
+        row, idx = pick(rows, title)
+        if edit:
+            # TODO: assumes id is the last column.
+            do_edit(id=table_data[idx][-1], data_dir=data_dir)
+        return idx
+    else:
+        return print(table)
 
+
+def edit_file(path: pathlib.Path):
     EDITOR = os.environ.get('EDITOR', 'vim')
     call([EDITOR, path])
 
@@ -84,6 +100,7 @@ def do_note(template: pathlib.Path, data_dir=DATA_PATH):
 
 record = typer.Typer()
 app.add_typer(record, name="record", help="Make a new record of the given type.")
+app.add_typer(record, name="mark", help="Alias of record.")
 
 
 # TODO: how to define a command for each template in the directory without method each time?
@@ -169,6 +186,7 @@ def parse_datetime_or_delta(
 
 query = typer.Typer()
 app.add_typer(query, name="query", help="Commands to query records.")
+app.add_typer(query, name="list", help="Alias of query.")
 
 
 def file_id(path):
@@ -178,7 +196,7 @@ def file_id(path):
 
 
 @query.command()
-def tasks(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False):
+def tasks(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False, edit: bool=False):
     """
     Show all tasks from task and due dates.
 
@@ -208,7 +226,13 @@ def tasks(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False):
                     bool(completed),
                     file_id(task)))
     table.sort(key=lambda x: x[0], reverse=False)
-    print(tabulate.tabulate(table, headers=["Due", "Task", "Created", "Completed", "id"]))
+    show_table(
+        table,
+        headers=["Due", "Task", "Created", "Completed", "id"],
+        pickable=edit,
+        edit=edit,
+        data_dir=data_dir,
+    )
 
 
 @query.command()
@@ -238,11 +262,11 @@ def predictions(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False):
                     file_id(task))
                 )
     table.sort(key=lambda x: x[0], reverse=False)
-    print(tabulate.tabulate(table, headers=["Expected Completion", "Event", "Created", "Actual", "id"]))
+    show_table(table, headers=["Expected Completion", "Event", "Created", "Actual", "id"])
 
 
 @query.command()
-def notes(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False, tag=None):
+def notes(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False, tag=None, edit: bool=False):
     import commonmark
     parser = commonmark.Parser()
     yaml = YAML(typ="safe")
@@ -275,18 +299,39 @@ def notes(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False, tag=None):
                     file_id(file),
                 ))
     table.sort(key=lambda x: x[0], reverse=False)
-    print(tabulate.tabulate(table, headers=["Date", "Note", "tags", "id"]))
+    show_table(table, headers=["Date", "Note", "tags", "id"], pickable=edit, edit=edit)
 
 
-@app.command(help="Edit a record by id.")
-def edit(id: str, data_dir: pathlib.Path=DATA_PATH):
-    for task in data_dir.glob("**/*.*"):
-        if id == task.name or id == file_id(task):
-            edit_file(task)
-            return
+def by_id(data_dir: pathlib.Path=DATA_PATH, id: str=None) -> pathlib.Path:
+    """
+    Query by id.
+    """
+    for file in data_dir.glob("**/*.*"):
+        if id == file.name or id == file_id(file):
+            return file
+
+def cmd_by_id(default: str, data_dir: pathlib.Path=DATA_PATH, id: str=None, env_variable: Optional[str]=None):
+    cmd = os.environ.get(env_variable, default)
+    file = by_id(data_dir, id)
+    if id is None:
+        print(f"No file found with id {id}")
+        sys.exit(1)
+    else:
+        call([cmd, str(file)])
+
+@app.command(help="Edit a record by id.", name="edit")
+@query.command(help="Edit a record by id.", name="edit")
+def do_edit(id: str, data_dir: pathlib.Path=DATA_PATH):
+    cmd_by_id("vim", data_dir, id, "EDITOR")
 
 
-@app.command(help="Mark a task, due date or prediction as complete.")
+@app.command(help="View record by id (with PAGER).")
+@query.command(help="View record by id (with PAGER).")
+def view(id: str, data_dir: pathlib.Path=DATA_PATH):
+    cmd_by_id("less", data_dir, id, "PAGER")
+
+
+@record.command(help="Mark a task, due date or prediction as complete.")
 def complete(id: str, completed_at=None, data_dir: pathlib.Path=DATA_PATH):
     if completed_at is None:
         completed_at = module_datetime.datetime.now(tz=TIMEZONE)
@@ -303,7 +348,7 @@ def complete(id: str, completed_at=None, data_dir: pathlib.Path=DATA_PATH):
 
 
 @query.command(help="Search records for a given string.")
-def grep(string: str, data_dir: pathlib.Path=DATA_PATH):
+def grep(string: str, data_dir: pathlib.Path=DATA_PATH, edit=False):
     """
     TODO: should we just defer this entirely to grep, like git-grep, then display the match
           in our tabular format.
@@ -312,7 +357,7 @@ def grep(string: str, data_dir: pathlib.Path=DATA_PATH):
     for task in data_dir.glob("**/*.*"):
         if string in task.read_text():
             data.append((task.name, file_id(task)))
-    print(tabulate.tabulate(data, headers=["Name", "id"]))
+    show_table(data, headers=["Name", "id"], edit=edit, pickable=edit)
 
 
 if __name__ == '__main__':
