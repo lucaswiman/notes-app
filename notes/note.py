@@ -90,7 +90,7 @@ def do_note(template: pathlib.Path, data_dir: pathlib.Path=DATA_PATH):
         path.write_text(final)
 
         # TODO: validate show another editor window with the errors.
-        print(f"{template.stem.title()} saved to {path}")
+        print(f"{template.stem.title()} saved to {path} ({file_id(path)}).")
     else:
         print("No changes made to template; aborting.")
         sys.exit(1)
@@ -99,6 +99,7 @@ def do_note(template: pathlib.Path, data_dir: pathlib.Path=DATA_PATH):
 record = typer.Typer()
 app.add_typer(record, name="record", help="Make a new record of the given type.")
 app.add_typer(record, name="mark", help="Alias of record.")
+app.add_typer(record, name="add", help="Alias of record.")
 
 
 def do_template_command(command: str, data_dir: pathlib.Path=DATA_PATH):
@@ -138,13 +139,17 @@ def file_id(path):
 
 @query.command()
 @query.command(name="task", help="Alias of tasks.", hidden=True)
-def tasks(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False, edit: bool=False):
+def tasks(data_dir: pathlib.Path=DATA_PATH, time_window: str="2 months", show_all: bool=False, edit: bool=False):
     """
     Show all tasks from task and due dates.
 
     If --show-all is selected, then expired or completed tasks will be included.
+
+    By default tasks due >2 months in the future will be excluded. To include them, use
+    --time-window=never
     """
     now = module_datetime.datetime.now(tz=TIMEZONE)
+    window = parse_datetime_or_delta(time_window, now)
     table = []
     for task in data_dir.glob("**/*.yaml"):
         parsed = parse_record(task)
@@ -152,12 +157,13 @@ def tasks(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False, edit: bool=Fal
             due = parsed.get("due")
             completed = parsed.get("completed")
             if show_all or (not completed and dt_compare(now, parsed.get("irrelevant"))):
-                table.append((
-                    (due.isoformat() if hasattr(due, "isoformat") else due) or "",
-                    parsed['event'],
-                    parsed["created"].date().isoformat(),
-                    bool(completed),
-                    file_id(task)))
+                if not due or dt_compare(due, window):
+                    table.append((
+                        (due.isoformat() if hasattr(due, "isoformat") else due) or "",
+                        parsed['event'],
+                        parsed["created"].date().isoformat(),
+                        bool(completed),
+                        file_id(task)))
     table.sort(key=lambda x: x[0], reverse=False)
     show_table(
         table,
@@ -242,6 +248,7 @@ def view(id: str, data_dir: pathlib.Path=DATA_PATH):
 
 
 @record.command(help="Mark a task, due date or prediction as complete.")
+@app.command(name="complete", help="Alias of `record complete`.", hidden=True)
 def complete(id: str, completed_at=None, data_dir: pathlib.Path=DATA_PATH):
     # TODO: (1) make this work for notes.
     # TODO: (2) make this pickable.

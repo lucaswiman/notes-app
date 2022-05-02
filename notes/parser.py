@@ -4,6 +4,7 @@ import zoneinfo
 import os
 
 import commonmark
+from dateutil.relativedelta import relativedelta
 import regex as re
 from ruamel.yaml import YAML
 
@@ -22,12 +23,12 @@ def parse_bday(bday: str):
 
 
 TIME_UNITS = {
-    "hour": (lambda x: datetime.timedelta(hours=x)),
+    "hour": (lambda x: datetime.timedelta(hours=int(x))),
     "day": (lambda x: datetime.timedelta(days=int(x))),
     "week": (lambda x: datetime.timedelta(weeks=int(x))),
+    "year": (lambda x: relativedelta(years=int(x))),
 
-    # TODO: some months are not 30 days long.
-    "month": (lambda x: datetime.timedelta(days=int(x)*30)),
+    "month": (lambda x: relativedelta(months=int(x))),
     "business day": parse_bday,
 }
 
