@@ -108,7 +108,9 @@ def do_template_command(command: str, data_dir: pathlib.Path=DATA_PATH):
     return _do_template
 
 for command in COMMAND_TO_TEMPLATE:
-    record.command()(do_template_command(command))
+    method = do_template_command(command)
+    record.command()(method)
+    record.command(name=f"{command}s", help=f"Alias of {command}.", hidden=True)(method)
 
 
 def is_date(d):
