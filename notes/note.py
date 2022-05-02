@@ -36,7 +36,7 @@ TEMPLATES = list(itertools.chain(TEMPLATE_PATH.glob("*.md"), TEMPLATE_PATH.glob(
 COMMAND_TO_TEMPLATE = {f.stem.replace('-', '_'): f for f in TEMPLATES}
 
 
-def show_table(table_data: list, headers: list, show_index=True, pickable=False, edit=False, data_dir=DATA_PATH):
+def show_table(table_data: list, headers: list, show_index=True, pickable=False, edit=False, data_dir: pathlib.Path=DATA_PATH):
     table = tabulate.tabulate(table_data, headers=headers, showindex=show_index)
     if pickable:
         from pick import pick
@@ -69,7 +69,7 @@ def edit_template(text: str):
         return edited_message
 
 
-def do_note(template: pathlib.Path, data_dir=DATA_PATH):
+def do_note(template: pathlib.Path, data_dir: pathlib.Path=DATA_PATH):
     timestamp = module_datetime.datetime.now(TIMEZONE)
     if template.suffix.lower() == ".yaml":
         yaml_obj = YAML()
@@ -101,8 +101,8 @@ app.add_typer(record, name="record", help="Make a new record of the given type."
 app.add_typer(record, name="mark", help="Alias of record.")
 
 
-def do_template_command(command: str):
-    def _do_template(data_dir=DATA_PATH):
+def do_template_command(command: str, data_dir: pathlib.Path=DATA_PATH):
+    def _do_template(data_dir: pathlib.Path=data_dir):
         return do_note(COMMAND_TO_TEMPLATE[command], data_dir=data_dir)
     _do_template.__name__ = command
     return _do_template
