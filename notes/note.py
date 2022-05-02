@@ -135,6 +135,7 @@ def file_id(path):
 
 
 @query.command()
+@query.command(name="task", help="Alias of tasks.", hidden=True)
 def tasks(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False, edit: bool=False):
     """
     Show all tasks from task and due dates.
