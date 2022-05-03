@@ -36,7 +36,7 @@ TEMPLATES = list(itertools.chain(TEMPLATE_PATH.glob("*.md"), TEMPLATE_PATH.glob(
 COMMAND_TO_TEMPLATE = {f.stem.replace('-', '_'): f for f in TEMPLATES}
 
 
-def show_table(table_data: list, headers: list, show_index=True, pickable=False, edit=False, data_dir: pathlib.Path=DATA_PATH):
+def show_table(table_data: list, headers: list, show_index=True, pickable=False, edit=False, cat=False, data_dir: pathlib.Path=DATA_PATH):
     table = tabulate.tabulate(table_data, headers=headers, showindex=show_index)
     if pickable:
         from pick import pick
@@ -47,6 +47,9 @@ def show_table(table_data: list, headers: list, show_index=True, pickable=False,
         if edit:
             # TODO: assumes id is the last column.
             do_edit(id=table_data[idx][-1], data_dir=data_dir)
+        if cat:
+            file = by_id(id=table_data[idx][-1], data_dir=data_dir)
+            print(file.read_text())
         return idx
     else:
         return print(table)
@@ -197,25 +200,48 @@ def predictions(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False, edit: bo
     show_table(table, headers=["Expected Completion", "Event", "Created", "Actual", "id"], edit=edit, data_dir=data_dir, pickable=edit)
 
 
-@query.command(help="List all notes.")
-def notes(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False, tag=None, edit: bool=False):
+def list_md(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False, edit: bool=False, suffix="note", tag=None, cat=False):
     table = []
-    for file in data_dir.glob("**/*.md"):
+    for file in data_dir.glob(f"**/*-{suffix}.md"):
         parsed = parse_record(file)
-        if parsed["type"] == "note":
+        if parsed["type"] == suffix:
             completed = parsed["completed"]
             irrelevant = parsed["irrelevant"]
             title = parsed["event"]
             date = parsed["created"]
             if show_all or (not completed and dt_compare(module_datetime.datetime.now(), irrelevant)):
-                table.append((
-                    date.isoformat(),
-                    title,
-                    ", ".join(parsed["tags"]),
-                    file_id(file),
-                ))
+                if tag is None or tag in parsed["tags"]:
+                    table.append((
+                        date.isoformat(),
+                        title,
+                        ", ".join(parsed["tags"]),
+                        file_id(file),
+                    ))
     table.sort(key=lambda x: x[0], reverse=False)
-    show_table(table, headers=["Date", "Note", "tags", "id"], pickable=edit, edit=edit)
+    show_table(table, headers=["Date", "Title", "tags", "id"], pickable=edit or cat, edit=edit, cat=cat)
+
+
+@query.command(help="List all notes.")
+def notes(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False, edit: bool=False,
+          tag: Optional[str]=None, cat: bool=False):
+    """
+    List all notes.
+
+    If --show-all is selected, then completed notes will be included.
+    """
+    return list_md(data_dir=data_dir, show_all=show_all, edit=edit, suffix="note", tag=tag, cat=cat)
+
+
+@query.command(help="List all gists.")
+def gists(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False, edit: bool=False,
+          tag: Optional[str]=None, cat: bool=False):
+    """
+    List all notes.
+
+    If --show-all is selected, then completed notes will be included.
+    """
+    return list_md(data_dir=data_dir, show_all=show_all, edit=edit, suffix="gist", tag=tag, cat=cat)
+
 
 
 def by_id(data_dir: pathlib.Path=DATA_PATH, id: str=None) -> pathlib.Path:
@@ -247,23 +273,41 @@ def view(id: str, data_dir: pathlib.Path=DATA_PATH):
     cmd_by_id("less", data_dir, id, "PAGER")
 
 
+@app.command(help="Print record by id.")
+@query.command(help="Print record by id.")
+def cat(id: str, data_dir: pathlib.Path=DATA_PATH):
+    cmd_by_id("cat", data_dir, id, "PRINTER")
+
+
 @record.command(help="Mark a task, due date or prediction as complete.")
 @app.command(name="complete", help="Alias of `record complete`.", hidden=True)
-def complete(id: str, completed_at=None, data_dir: pathlib.Path=DATA_PATH):
+def complete(id: Optional[str] = None, completed_at=None, data_dir: pathlib.Path=DATA_PATH):
     # TODO: (1) make this work for notes.
     # TODO: (2) make this pickable.
     if completed_at is None:
         completed_at = module_datetime.datetime.now(tz=TIMEZONE)
     else:
         completed_at = parse_datetime_or_delta(completed_at, module_datetime.datetime.now(tz=TIMEZONE))
-    for task in data_dir.glob("**/*.*"):
-        if id == task.name or id == file_id(task):
-            yaml = YAML(typ="safe")
-            value = yaml.load(task)
-            value["completed_at"] = completed_at
-            value["completed"] = True
-            yaml.dump(value, task)
-            return
+    def do_complete(file: pathlib.Path):
+        yaml = YAML(typ="safe")
+        value = yaml.load(file)
+        value["completed_at"] = completed_at
+        value["completed"] = True
+        yaml.dump(value, file)
+
+    if id:
+        for task in data_dir.glob("**/*.*"):
+            if id == task.name or id == file_id(task):
+                do_complete(task)
+                return
+    else:
+        table = [
+            (parsed["created"].date(), parsed["type"], parsed["due"], parsed["event"], file_id(item)) for item in data_dir.glob("**/*.yaml")
+            if "completed" in (parsed := parse_record(item)) and not parsed["completed"]
+        ]
+        row_num = show_table(table, headers=["created", "type", "due", "event", "id"], edit=False, pickable=True)
+        row = table[row_num]
+        do_complete(by_id(row[-1]))
 
 
 @query.command(help="Search records for a given string.")
