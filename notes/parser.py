@@ -109,7 +109,7 @@ def file_id(path):
     return hashlib.blake2s(path.name.encode()).hexdigest()[:10]
 
 
-def parsed_tasks(glob: str, data_dir: pathlib.Path) -> list[dict]:
+def parsed_records(glob: str, data_dir: pathlib.Path) -> list[dict]:
     for path in data_dir.glob(glob):
         try:
             yield parse_record(path)

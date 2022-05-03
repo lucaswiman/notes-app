@@ -13,7 +13,7 @@ import typer
 
 from ruamel.yaml import YAML
 
-from .parser import TIMEZONE, parsed_tasks, parse_datetime_or_delta, parse_record, file_id
+from .parser import TIMEZONE, parsed_records, parse_datetime_or_delta, parse_record, file_id
 
 
 app = typer.Typer()
@@ -147,8 +147,7 @@ def tasks(data_dir: pathlib.Path=DATA_PATH, time_window: str="2 months", show_al
     now = module_datetime.datetime.now(tz=TIMEZONE)
     window = parse_datetime_or_delta(time_window, now)
     table = []
-    for task in data_dir.glob("**/*.yaml"):
-        parsed = parse_record(task)
+    for parsed in parsed_records("**/*.yaml", data_dir=data_dir):
         if parsed["type"] in ("task", "due-date") and (show_all or not parsed["completed_at"]):
             due = parsed.get("due")
             completed = parsed.get("completed")
@@ -159,7 +158,7 @@ def tasks(data_dir: pathlib.Path=DATA_PATH, time_window: str="2 months", show_al
                         parsed['event'],
                         parsed["created"].date().isoformat(),
                         bool(completed),
-                        file_id(task)))
+                        parsed["file_id"]))
     table.sort(key=lambda x: x[0], reverse=False)
     show_table(
         table,
@@ -178,24 +177,24 @@ def predictions(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False, edit: bo
     If --show-all is selected, then completed predictions will be included.
     """
     table = []
-    for task in data_dir.glob("**/*.yaml"):
-        parsed = parse_record(task)
+    for parsed in parsed_records("**/*.yaml", data_dir=data_dir):
         if parsed["type"] == "prediction" and (show_all or not parsed["completed_at"]):
             table.append((
                 parsed["expected_completion"].isoformat(),
                 parsed["event"],
                 parsed["created"].date().isoformat(),
                 parsed["completed_at"],
-                file_id(task)
+                parsed["file_id"],
             ))
 
     table.sort(key=lambda x: x[0], reverse=False)
-    show_table(table, headers=["Expected Completion", "Event", "Created", "Actual", "id"], edit=edit, data_dir=data_dir, pickable=edit)
+    show_table(table, headers=["Expected Completion", "Event", "Created", "Actual", "id"],
+               edit=edit, data_dir=data_dir, pickable=edit)
 
 
 def list_md(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False, edit: bool=False, suffix="note", tag=None, cat=False):
     table = []
-    for parsed in parsed_tasks(f"**/*-{suffix}.md", data_dir=data_dir):
+    for parsed in parsed_records(f"**/*-{suffix}.md", data_dir=data_dir):
         if parsed["type"] == suffix:
             completed = parsed["completed"]
             irrelevant = parsed["irrelevant"]
@@ -294,8 +293,9 @@ def complete(id: Optional[str] = None, completed_at=None, data_dir: pathlib.Path
                 return
     else:
         table = [
-            (parsed["created"].date(), parsed["type"], parsed["due"], parsed["event"], file_id(item)) for item in data_dir.glob("**/*.yaml")
-            if "completed" in (parsed := parse_record(item)) and not parsed["completed"]
+            (parsed["created"].date(), parsed["type"], parsed["due"], parsed["event"], parsed["file_id"])
+            for parsed in parsed_records("**/*.yaml", data_dir=data_dir)
+            if "completed" in parsed and not parsed["completed"]
         ]
         row_num = show_table(table, headers=["created", "type", "due", "event", "id"], edit=False, pickable=True)
         row = table[row_num]
