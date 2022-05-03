@@ -1,4 +1,5 @@
 import datetime
+import hashlib
 import pathlib
 import zoneinfo
 import os
@@ -97,4 +98,20 @@ def parse_record(path: pathlib.Path) -> dict:
     extracts["raw_data"] = raw_data
     [type] = re.findall(r'[0-9T:.-]+-(.*)', path.stem)
     extracts["type"] = type
+    extracts["file_id"] = file_id(path)
+    extracts["path"] = path
     return extracts
+
+
+def file_id(path):
+    if isinstance(path, str):
+        path = pathlib.Path(path)
+    return hashlib.blake2s(path.name.encode()).hexdigest()[:10]
+
+
+def parsed_tasks(glob: str, data_dir: pathlib.Path) -> list[dict]:
+    for path in data_dir.glob(glob):
+        try:
+            yield parse_record(path)
+        except Exception as e:
+            print(f"Error parsing {path}: {e}")

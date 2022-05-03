@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 import datetime as module_datetime
-import hashlib
 import itertools
 import os
 import pathlib
@@ -14,7 +13,7 @@ import typer
 
 from ruamel.yaml import YAML
 
-from .parser import TIMEZONE, parse_datetime_or_delta, parse_record
+from .parser import TIMEZONE, parsed_tasks, parse_datetime_or_delta, parse_record, file_id
 
 
 app = typer.Typer()
@@ -134,12 +133,6 @@ app.add_typer(query, name="query", help="Commands to query records.")
 app.add_typer(query, name="list", help="Alias of query.")
 
 
-def file_id(path):
-    if isinstance(path, str):
-        path = pathlib.Path(path)
-    return hashlib.blake2s(path.name.encode()).hexdigest()[:10]
-
-
 @query.command()
 @query.command(name="task", help="Alias of tasks.", hidden=True)
 def tasks(data_dir: pathlib.Path=DATA_PATH, time_window: str="2 months", show_all: bool=False, edit: bool=False):
@@ -202,8 +195,7 @@ def predictions(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False, edit: bo
 
 def list_md(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False, edit: bool=False, suffix="note", tag=None, cat=False):
     table = []
-    for file in data_dir.glob(f"**/*-{suffix}.md"):
-        parsed = parse_record(file)
+    for parsed in parsed_tasks(f"**/*-{suffix}.md", data_dir=data_dir):
         if parsed["type"] == suffix:
             completed = parsed["completed"]
             irrelevant = parsed["irrelevant"]
@@ -215,7 +207,7 @@ def list_md(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False, edit: bool=F
                         date.isoformat(),
                         title,
                         ", ".join(parsed["tags"]),
-                        file_id(file),
+                        parsed["file_id"],
                     ))
     table.sort(key=lambda x: x[0], reverse=False)
     show_table(table, headers=["Date", "Title", "tags", "id"], pickable=edit or cat, edit=edit, cat=cat)
