@@ -56,7 +56,7 @@ def show_table(table_data: list, headers: list, show_index=True, pickable=False,
 
 def edit_file(path: pathlib.Path):
     EDITOR = os.environ.get('EDITOR', 'vim')
-    call([EDITOR, path])
+    call([*EDITOR.split(), path])
 
 
 def edit_template(text: str):
@@ -135,7 +135,7 @@ app.add_typer(query, name="list", help="Alias of query.")
 
 @query.command()
 @query.command(name="task", help="Alias of tasks.", hidden=True)
-def tasks(data_dir: pathlib.Path=DATA_PATH, time_window: str="2 months", show_all: bool=False, edit: bool=False):
+def tasks(data_dir: pathlib.Path=DATA_PATH, time_window: str="2 months", show_all: bool=False, edit: bool=False, created_on: Optional[str]=None):
     """
     Show all tasks from task and due dates.
 
@@ -146,13 +146,16 @@ def tasks(data_dir: pathlib.Path=DATA_PATH, time_window: str="2 months", show_al
     """
     now = module_datetime.datetime.now(tz=TIMEZONE)
     window = parse_datetime_or_delta(time_window, now)
+    if created_on is not None:
+        created_on = parse_datetime_or_delta(created_on, now)
     table = []
     for parsed in parsed_records("**/*.yaml", data_dir=data_dir):
         if parsed["type"] in ("task", "due-date") and (show_all or not parsed["completed_at"]):
             due = parsed.get("due")
             completed = parsed.get("completed")
             if show_all or (not completed and dt_compare(now, parsed.get("irrelevant"))):
-                if not due or dt_compare(due, window):
+                if ((not due or dt_compare(due, window))
+                        and (not created_on or parsed["created"].date() == created_on)):
                     table.append((
                         (due.isoformat() if hasattr(due, "isoformat") else due) or "",
                         parsed['event'],
@@ -250,7 +253,7 @@ def cmd_by_id(default: str, data_dir: pathlib.Path=DATA_PATH, id: str=None, env_
         print(f"No file found with id {id}")
         sys.exit(1)
     else:
-        call([cmd, str(file)])
+        call([*cmd.split(), str(file)])
 
 @app.command(help="Edit a record by id.", name="edit")
 @query.command(help="Edit a record by id.", name="edit")
