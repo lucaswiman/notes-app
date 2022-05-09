@@ -302,7 +302,7 @@ def complete(id: Optional[str] = None, completed_at=None, data_dir: pathlib.Path
         ]
         row_num = show_table(table, headers=["created", "type", "due", "event", "id"], edit=False, pickable=True)
         row = table[row_num]
-        do_complete(by_id(row[-1]))
+        do_complete(by_id(id=row[-1], data_dir=data_dir))
 
 
 @query.command(help="Search records for a given string.")
