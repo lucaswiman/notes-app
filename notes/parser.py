@@ -34,6 +34,25 @@ TIME_UNITS = {
 }
 
 
+# Matches date.weekday() behavior:
+DAYS_OF_WEEK = {
+    "monday": 0,
+    "tuesday": 1,
+    "wednesday": 2,
+    "thursday": 3,
+    "friday": 4,
+    "saturday": 5,
+    "sunday": 6,
+}
+
+
+SPECIAL_DAYS = {
+    "today", "tomorrow", "yesterday",
+    *DAYS_OF_WEEK.keys(),
+    *["next %s" % day for day in DAYS_OF_WEEK.keys()],
+}
+
+
 def parse_datetime_or_delta(
     s: str | datetime.datetime | datetime.date | None,
     ts: datetime.datetime | datetime.date,
@@ -55,6 +74,27 @@ def parse_datetime_or_delta(
         if unit != "hour" and hasattr(result, "date"):
             result = result.date()
         return result
+    elif s.lower() in SPECIAL_DAYS:
+        today = ts.date() if hasattr(ts, "date") else ts
+        match s.lower().split():
+            case ["today"]:
+                return today
+            case ["tomorrow"]:
+                return today + datetime.timedelta(days=1)
+            case ["yesterday"]:
+                return today - datetime.timedelta(days=-1)
+            case ["next", day]:
+                next_monday = today + datetime.timedelta(days=7 - today.weekday())
+                return next_monday + datetime.timedelta(days=DAYS_OF_WEEK[day])
+            case [day]:
+                desired_day = DAYS_OF_WEEK[day]
+                # "Monday" on Wednesday refers to two days previously.
+                # "Friday" on a Wednesday refers to two days later.
+                # "Next Friday" on a Wednesday refers to the following Friday (9 days later).
+                return today + datetime.timedelta(days=desired_day - today.weekday())
+        assert False, "unreachable"
+    elif s.lower() == "tomorrow":
+        return (ts.date() if hasattr(ts, "date") else ts) + datetime.timedelta(days=1)
     else:
         raise ValueError(f"Unrecognized format: {s}.")
 
