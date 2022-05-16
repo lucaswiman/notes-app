@@ -135,7 +135,7 @@ app.add_typer(query, name="list", help="Alias of query.")
 
 @query.command()
 @query.command(name="task", help="Alias of tasks.", hidden=True)
-def tasks(data_dir: pathlib.Path=DATA_PATH, time_window: str="2 months", show_all: bool=False, edit: bool=False, created_on: Optional[str]=None):
+def tasks(data_dir: pathlib.Path=DATA_PATH, time_window: str="2 months", show_all: bool=False, edit: bool=False, created_on: Optional[str]=None, due_before: Optional[str]=None):
     """
     Show all tasks from task and due dates.
 
@@ -148,10 +148,16 @@ def tasks(data_dir: pathlib.Path=DATA_PATH, time_window: str="2 months", show_al
     window = parse_datetime_or_delta(time_window, now)
     if created_on is not None:
         created_on = parse_datetime_or_delta(created_on, now)
+    if due_before is not None:
+        due_before = parse_datetime_or_delta(due_before, now)
+    else:
+        due_before = module_datetime.date(2100, 1, 1)
     table = []
     for parsed in parsed_records("**/*.yaml", data_dir=data_dir):
         if parsed["type"] in ("task", "due-date") and (show_all or not parsed["completed_at"]):
             due = parsed.get("due")
+            if due and dt_compare(due_before, due):
+                continue
             completed = parsed.get("completed")
             if show_all or (not completed and dt_compare(now, parsed.get("irrelevant"))):
                 if ((not due or dt_compare(due, window))
@@ -263,19 +269,23 @@ def do_edit(id: str, data_dir: pathlib.Path=DATA_PATH):
 
 @app.command(help="View record by id (with PAGER).")
 @query.command(help="View record by id (with PAGER).")
+@app.command(help="View record by id (with PAGER).", name="less", hidden=True)
+@query.command(help="View record by id (with PAGER).", name="less", hidden=True)
 def view(id: str, data_dir: pathlib.Path=DATA_PATH):
     cmd_by_id("less", data_dir, id, "PAGER")
 
 
 @app.command(help="Print record by id.")
 @query.command(help="Print record by id.")
+@app.command(help="Print record by id.", name="show", hidden=True)
+@query.command(help="Print record by id.", name="show", hidden=True)
 def cat(id: str, data_dir: pathlib.Path=DATA_PATH):
     cmd_by_id("cat", data_dir, id, "PRINTER")
 
 
 @record.command(help="Mark a task, due date or prediction as complete.")
 @app.command(name="complete", help="Alias of `record complete`.", hidden=True)
-def complete(id: Optional[str] = None, completed_at=None, data_dir: pathlib.Path=DATA_PATH):
+def complete(id: str, *,  completed_at=None, data_dir: pathlib.Path=DATA_PATH):
     # TODO: (1) make this work for notes.
     # TODO: (2) make this pickable.
     if completed_at is None:
@@ -289,7 +299,7 @@ def complete(id: Optional[str] = None, completed_at=None, data_dir: pathlib.Path
         value["completed"] = True
         yaml.dump(value, file)
 
-    if id:
+    if id != "pick":
         for task in data_dir.glob("**/*.*"):
             if id == task.name or id == file_id(task):
                 do_complete(task)

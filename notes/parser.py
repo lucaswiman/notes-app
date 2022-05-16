@@ -3,6 +3,7 @@ import hashlib
 import pathlib
 import zoneinfo
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import commonmark
 from dateutil.relativedelta import relativedelta
@@ -149,9 +150,14 @@ def file_id(path):
     return hashlib.blake2s(path.name.encode()).hexdigest()[:10]
 
 
+
 def parsed_records(glob: str, data_dir: pathlib.Path) -> list[dict]:
-    for path in data_dir.glob(glob):
+    def do_parse(path):
         try:
-            yield parse_record(path)
+            return parse_record(path)
         except Exception as e:
-            print(f"Error parsing {path}: {e}")
+            print(f"Failed to parse {path}: {e}")
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futures = [ex.submit(do_parse, path) for path in data_dir.glob(glob)]
+        for fut in as_completed(futures):
+            yield fut.result()
