@@ -170,7 +170,10 @@ def parse_record(path: pathlib.Path) -> dict:
     extracts["type"] = type
     extracts["file_id"] = file_id(path)
     extracts["path"] = path
-    extracts["rank_priority"] = raw_data.get('rank_priority', 10_000)
+    extracts["rank_priority"] = raw_data.get('rank_priority')
+    if extracts["rank_priority"] is None:
+        extracts["rank_priority"] = 10_000
+
 
     return extracts
 
