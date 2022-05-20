@@ -9,6 +9,7 @@ from subprocess import call
 from typing import Optional
 
 import tabulate
+import blessings
 import typer
 
 from ruamel.yaml import YAML
@@ -35,13 +36,14 @@ TEMPLATES = list(itertools.chain(TEMPLATE_PATH.glob("*.md"), TEMPLATE_PATH.glob(
 COMMAND_TO_TEMPLATE = {f.stem.replace('-', '_'): f for f in TEMPLATES}
 
 
-def show_table(table_data: list, headers: list, show_index=True, pickable=False, edit=False, cat=False, data_dir: pathlib.Path=DATA_PATH):
+def show_table(table_data: list, headers: list, show_index=True, pickable=False, edit=False, cat=False, data_dir: pathlib.Path=DATA_PATH, bold=()):
+    t = blessings.Terminal()
     table = tabulate.tabulate(table_data, headers=headers, showindex=show_index)
+    rows = table.split('\n')
     if pickable:
-        from pick import pick
-        rows = table.split('\n')
         title = '\n'.join(['  ' + rows[0], '  ' + rows[1]])
         rows = rows[2:]
+        from pick import pick
         row, idx = pick(rows, title)
         if edit:
             # TODO: assumes id is the last column.
@@ -51,7 +53,13 @@ def show_table(table_data: list, headers: list, show_index=True, pickable=False,
             print(file.read_text())
         return idx
     else:
-        return print(table)
+        formatted_rows = rows[:2]
+        rows = rows[2:]
+        for i, row in enumerate(rows):
+            if i in bold:
+                row = t.bold(row)
+            formatted_rows.append(row)
+        return print('\n'.join(formatted_rows))
 
 
 def edit_file(path: pathlib.Path):
@@ -141,31 +149,44 @@ def tasks(data_dir: pathlib.Path=DATA_PATH, time_window: str="2 months", show_al
     else:
         due_before = module_datetime.date(2100, 1, 1)
     table = []
+    bold_row_ids = set()
+    today = module_datetime.datetime.now(TIMEZONE).date()
     for parsed in parsed_records("**/*.yaml", data_dir=data_dir):
         if parsed["type"] in ("task", "due-date", "focus") and (show_all or not parsed["completed_at"]):
             due = parsed.get("due")
             if due and dt_compare(due_before, due):
                 continue
+            try:
+                due_date = due.date()
+            except AttributeError:
+                due_date = due
+            if due_date == today:
+                bold_row_ids.add(parsed["file_id"])
             completed = parsed.get("completed")
             if show_all or (not completed and parsed["still_relevant"]):
                 if ((not due or dt_compare(due, window))
                         and (not created_on or parsed["created"].date() == created_on)):
+                    event = parsed['event']
+                    if parsed["type"] == "focus":
+                        bold_row_ids.add(parsed["file_id"])
                     table.append((
                         parsed["rank_priority"],
                         parsed["type"].upper() if parsed["type"] == "focus" else "",
                         (due.isoformat() if hasattr(due, "isoformat") else due) or "",
-                        parsed['event'],
+                        event,
                         parsed["created"].date().isoformat(),
                         bool(completed),
                         parsed["file_id"]))
     table.sort(key=lambda x: (x[0], x[2]), reverse=False)
     table = [t[1:] for t in table]
+    bold_rows = {i for i, row in enumerate(table) if row[-1] in bold_row_ids}
     show_table(
         table,
         headers=["", "Due", "Task", "Created", "Completed", "id"],
         pickable=edit,
         edit=edit,
         data_dir=data_dir,
+        bold=bold_rows
     )
 
 
@@ -289,6 +310,7 @@ def complete(id: str, *,  completed_at=None, data_dir: pathlib.Path=DATA_PATH):
         value["completed_at"] = completed_at
         value["completed"] = True
         yaml.dump(value, file)
+        print(f"Marked {file_id(file)} as complete ({value['event']}).")
 
     if id != "pick":
         for task in data_dir.glob("**/*.*"):
