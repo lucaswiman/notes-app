@@ -59,8 +59,8 @@ def edit_file(path: pathlib.Path):
     call([*EDITOR.split(), path])
 
 
-def edit_template(text: str):
-    with tempfile.NamedTemporaryFile(suffix=".tmp", delete=True) as tf:
+def edit_template(text: str, suffix=None):
+    with tempfile.NamedTemporaryFile(suffix=f".tmp{suffix}", delete=True) as tf:
         tf.write(text.encode())
         tf.flush()
         edit_file(tf.name)
@@ -86,7 +86,7 @@ def do_note(template: pathlib.Path, data_dir: pathlib.Path=DATA_PATH):
         from jinja2 import Environment, BaseLoader
         rtemplate = Environment(loader=BaseLoader).from_string(value)
         value = rtemplate.render(date=module_datetime.datetime.now(TIMEZONE).date().isoformat())
-    final = edit_template(value)
+    final = edit_template(value, template.suffix)
     if final is not None:
         path = data_dir / f"{timestamp.year}/{timestamp.isoformat()}-{template.name}"
         path.write_text(final)
