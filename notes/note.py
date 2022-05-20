@@ -13,7 +13,7 @@ import typer
 
 from ruamel.yaml import YAML
 
-from .parser import TIMEZONE, parsed_records, parse_datetime_or_delta, parse_record, file_id
+from .parser import TIMEZONE, parsed_records, parse_datetime_or_delta, file_id, dt_compare
 
 
 app = typer.Typer()
@@ -116,18 +116,6 @@ for command in COMMAND_TO_TEMPLATE:
     record.command(name=f"{command}s", help=f"Alias of {command}.", hidden=True)(method)
 
 
-def is_date(d):
-    return isinstance(d, module_datetime.date) and not isinstance(d, module_datetime.datetime)
-
-
-def dt_compare(d1, d2):
-    if is_date(d1) and not is_date(d2):
-        d2 = d2.date()
-    elif is_date(d2) and not is_date(d1):
-        d1 = d1.date()
-    return d1 <= d2
-
-
 query = typer.Typer()
 app.add_typer(query, name="query", help="Commands to query records.")
 app.add_typer(query, name="list", help="Alias of query.")
@@ -154,24 +142,27 @@ def tasks(data_dir: pathlib.Path=DATA_PATH, time_window: str="2 months", show_al
         due_before = module_datetime.date(2100, 1, 1)
     table = []
     for parsed in parsed_records("**/*.yaml", data_dir=data_dir):
-        if parsed["type"] in ("task", "due-date") and (show_all or not parsed["completed_at"]):
+        if parsed["type"] in ("task", "due-date", "focus") and (show_all or not parsed["completed_at"]):
             due = parsed.get("due")
             if due and dt_compare(due_before, due):
                 continue
             completed = parsed.get("completed")
-            if show_all or (not completed and dt_compare(now, parsed.get("irrelevant"))):
+            if show_all or (not completed and parsed["still_relevant"]):
                 if ((not due or dt_compare(due, window))
                         and (not created_on or parsed["created"].date() == created_on)):
                     table.append((
+                        parsed["rank_priority"],
+                        parsed["type"].upper() if parsed["type"] == "focus" else "",
                         (due.isoformat() if hasattr(due, "isoformat") else due) or "",
                         parsed['event'],
                         parsed["created"].date().isoformat(),
                         bool(completed),
                         parsed["file_id"]))
-    table.sort(key=lambda x: x[0], reverse=False)
+    table.sort(key=lambda x: (x[0], x[2]), reverse=False)
+    table = [t[1:] for t in table]
     show_table(
         table,
-        headers=["Due", "Task", "Created", "Completed", "id"],
+        headers=["", "Due", "Task", "Created", "Completed", "id"],
         pickable=edit,
         edit=edit,
         data_dir=data_dir,
@@ -206,10 +197,10 @@ def list_md(data_dir: pathlib.Path=DATA_PATH, show_all: bool=False, edit: bool=F
     for parsed in parsed_records(f"**/*-{suffix}.md", data_dir=data_dir):
         if parsed["type"] == suffix:
             completed = parsed["completed"]
-            irrelevant = parsed["irrelevant"]
+            irrelevant_after = parsed["irrelevant_after"]
             title = parsed["event"]
             date = parsed["created"]
-            if show_all or (not completed and dt_compare(module_datetime.datetime.now(), irrelevant)):
+            if show_all or (not completed and dt_compare(module_datetime.datetime.now(), irrelevant_after)):
                 if tag is None or tag in parsed["tags"]:
                     table.append((
                         date.isoformat(),

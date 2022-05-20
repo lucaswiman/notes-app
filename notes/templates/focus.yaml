@@ -1,0 +1,21 @@
+event:
+url:
+
+# Optional priority, lower is means it is more important.
+rank_priority: -1
+
+source:
+
+# Focuses will sort to the top of tasks on the day they are due, and otherwise
+# will not show up.
+due: today
+
+irrelevant_before: ==due
+irrelevant_after: ==due
+completed: false
+completed_at: null
+
+notes: |
+  (optional)
+timestamp: null
+tags: []

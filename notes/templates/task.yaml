@@ -1,18 +1,14 @@
 event:
 url:
 
-# Where the event came from, e.g. "James in accounting", etc.
+# Optional priority, lower is means it is more important.
+rank_priority:
+
 source:
 
-# [Optional] One of the following formats:
-# - "(in )N {hours, days, business days, weeks, months}"
-# - "(at )date, time (assumed today) or datetime in format YYYY-MM-DD HH am/pm".
-#   You can optionally specify minutes, but maybe reconsider.
 due:
 
-# Same date or delta format, but time after which this due date is likely to be irrelevant
-# and is no longer worth displaying. This is relative to the due date, so e.g. "2 weeks"
-# means "2 weeks after the due date". The default is 1 month.
+irrelevant_before:
 irrelevant_after: 1 month
 completed: false
 completed_at: null

@@ -99,6 +99,16 @@ def parse_datetime_or_delta(
     else:
         raise ValueError(f"Unrecognized format: {s}.")
 
+def is_date(d):
+    return isinstance(d, datetime.date) and not isinstance(d, datetime.datetime)
+
+
+def dt_compare(d1, d2):
+    if is_date(d1) and not is_date(d2):
+        d2 = d2.date()
+    elif is_date(d2) and not is_date(d1):
+        d1 = d1.date()
+    return d1 <= d2
 
 
 def parse_record(path: pathlib.Path) -> dict:
@@ -118,19 +128,38 @@ def parse_record(path: pathlib.Path) -> dict:
     else:
         raise ValueError(f"Unknown file type: {ext}")
 
-    extracts["created"] = raw_data.get("date") or raw_data.get("timestamp")
+    extracts["created"] = created =  raw_data.get("date") or raw_data.get("timestamp")
+    if isinstance(created, datetime.datetime):
+        # The yaml parser takes a timestamp like 2022-05-19 22:01:55.699594-07:00, and turns
+        # it into a naive timestamp at UTC, like 2022-05-20T05:01:55.699594. So stupid, smdh.
+        extracts["created"] = (
+            datetime.datetime(*created.timetuple()[:6], tzinfo=datetime.timezone.utc)
+            .astimezone(TIMEZONE)
+        )
+
     extracts["expected_completion"] = parse_datetime_or_delta(
         raw_data.get("expected_completion"), extracts["created"])
     extracts["due"] = parse_datetime_or_delta(raw_data.get("due"), extracts["created"])
     relative_to_date = (
         extracts["expected_completion"] or extracts["due"] or extracts["created"] or datetime.date.today())
 
-    if raw_data.get("irrelevant_after"):
-        irrelevant = parse_datetime_or_delta(raw_data["irrelevant_after"], relative_to_date)
-    else:
-        irrelevant = extracts["created"] + datetime.timedelta(days=365)
-    extracts["irrelevant"] = irrelevant
+    for key in ["irrelevant_after", "irrelevant_before"]:
+        irrelevant = None
+        if (irrelevant := raw_data.get(key)):
+            if irrelevant == '==due':
+                irrelevant = extracts["due"]
+            else:
+                irrelevant = parse_datetime_or_delta(irrelevant, relative_to_date)
+        elif key == "irrelevant_after":
+            irrelevant = extracts["created"] + datetime.timedelta(days=365)
+        extracts[key] = irrelevant
 
+    now = datetime.datetime.now(tz=TIMEZONE)
+    extracts["still_relevant"] = True
+    if extracts["irrelevant_after"]:
+        extracts["still_relevant"] = dt_compare(now, extracts["irrelevant_after"]) and extracts["still_relevant"]
+    if extracts["irrelevant_before"]:
+        extracts["still_relevant"] = dt_compare(extracts["irrelevant_before"], now) and extracts["still_relevant"]
 
     extracts["completed"] = raw_data.get("completed")
     extracts["completed_at"] = parse_datetime_or_delta(raw_data.get("completed_at"), relative_to_date)
@@ -141,6 +170,8 @@ def parse_record(path: pathlib.Path) -> dict:
     extracts["type"] = type
     extracts["file_id"] = file_id(path)
     extracts["path"] = path
+    extracts["rank_priority"] = raw_data.get('rank_priority', 10_000)
+
     return extracts
 
 
@@ -156,8 +187,9 @@ def parsed_records(glob: str, data_dir: pathlib.Path) -> list[dict]:
         try:
             return parse_record(path)
         except Exception as e:
+            import pdb; pdb.post_mortem()
             print(f"Failed to parse {path}: {e}")
-    with ThreadPoolExecutor(max_workers=10) as ex:
+    with ThreadPoolExecutor(max_workers=1) as ex:
         futures = [ex.submit(do_parse, path) for path in data_dir.glob(glob)]
         for fut in as_completed(futures):
             yield fut.result()
