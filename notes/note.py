@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import datetime as module_datetime
 import itertools
+import operator
 import os
 import pathlib
 import sys
@@ -14,8 +15,8 @@ import typer
 
 from ruamel.yaml import YAML
 
-from .parser import TIMEZONE, parsed_records, parse_datetime_or_delta, file_id, dt_compare
-
+from .parser import TIMEZONE, parsed_records, parse_datetime_or_delta, file_id, dt_compare, \
+    parse_record
 
 app = typer.Typer()
 
@@ -292,6 +293,10 @@ def view(id: str, data_dir: pathlib.Path=DATA_PATH):
 @app.command(help="Print record by id.", name="show", hidden=True)
 @query.command(help="Print record by id.", name="show", hidden=True)
 def cat(id: str, data_dir: pathlib.Path=DATA_PATH):
+    if id == "tasks":
+        return tasks(data_dir=data_dir)
+    elif id == "notes":
+        return notes(data_dir=data_dir)
     cmd_by_id("cat", data_dir, id, "PRINTER")
 
 
@@ -326,6 +331,40 @@ def complete(id: str, *,  completed_at=None, data_dir: pathlib.Path=DATA_PATH):
         row_num = show_table(table, headers=["created", "type", "due", "event", "id"], edit=False, pickable=True)
         row = table[row_num]
         do_complete(by_id(id=row[-1], data_dir=data_dir))
+
+
+@record.command(help="Push off a due date by the specified amount.")
+@app.command(name="push", help="Alias of `record push`.", hidden=True)
+def push(id: str, data_dir: pathlib.Path=DATA_PATH):
+    push_to = input("Push to [1 week]? ").strip() or "1 week"
+    today = module_datetime.datetime.now(tz=TIMEZONE).date()
+    new_due_date = parse_datetime_or_delta(push_to, today)
+
+    def do_push(file: pathlib.Path):
+        parsed = parse_record(file)
+        yaml = YAML(typ="safe")
+        value = yaml.load(file)
+        value.setdefault("previous_due_dates", [])
+        value["previous_due_dates"].append(value['due'])
+        value["due"] = new_due_date.isoformat()
+        yaml.dump(value, file)
+        print(f"Pushed {file_id(file)} to {new_due_date.isoformat()}; previously {parsed['due'].isoformat()}.")
+
+    if id != "pick":
+        for task in data_dir.glob("**/*.*"):
+            if id == task.name or id == file_id(task):
+                do_push(task)
+                return
+    else:
+        table = [
+            (parsed["created"].date(), parsed["type"], parsed["due"], parsed["event"], parsed["file_id"])
+            for parsed in parsed_records("**/*.yaml", data_dir=data_dir)
+            if "completed" in parsed and not parsed["completed"] and parsed.get("due") is not None
+        ]
+        table.sort(key=operator.itemgetter(2))
+        row_num = show_table(table, headers=["created", "type", "due", "event", "id"], edit=False, pickable=True)
+        row = table[row_num]
+        do_push(by_id(id=row[-1], data_dir=data_dir))
 
 
 @query.command(help="Search records for a given string.")
